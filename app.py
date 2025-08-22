@@ -85,6 +85,9 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
 catalogo = load_excel("data/catalogo.xlsx")
 destinos = load_excel("data/destinos.xlsx")
 almacenes = load_excel("data/almacenes.xlsx")
+# Limpiar espacios de columnas para evitar KeyError
+for df in [catalogo, destinos, almacenes]:
+   df.columns = df.columns.str.strip()
 # ==========================
 # INTERFAZ STREAMLIT
 # ==========================
@@ -141,6 +144,7 @@ with st.form("form_factura"):
        st.write("### Referencias añadidas")
        df_refs = pd.DataFrame(st.session_state["referencias"])
        st.table(df_refs)
+   # Botón final para generar PDF
    generar = st.form_submit_button("📄 Generar Factura Proforma")
 # ==========================
 # GENERAR PDF
