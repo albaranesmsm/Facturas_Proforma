@@ -10,15 +10,17 @@ import os
 # FUNCIONES DE APOYO
 # ==========================
 def load_excel(path):
-   """Carga un Excel y limpia espacios en columnas."""
+   """Carga un Excel si existe y limpia espacios en columnas y valores."""
    if not os.path.exists(path):
        st.error(f"No se encuentra el archivo requerido: {path}")
        return pd.DataFrame()
    df = pd.read_excel(path)
    df.columns = df.columns.str.strip()
+   for col in df.select_dtypes(include="object").columns:
+       df[col] = df[col].astype(str).str.strip()
    return df
 def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, referencias):
-   """Genera PDF de factura proforma."""
+   """Genera el PDF de la factura proforma."""
    buffer = BytesIO()
    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4))
    elementos = []
@@ -31,7 +33,7 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
    except:
        elementos.append(Paragraph("LOGO NO DISPONIBLE", styleN))
    elementos.append(Spacer(1, 12))
-   elementos.append(Paragraph("<b>Material gratuito sin valor comercial</b>", styleN))
+   elementos.append(Paragraph("<b>Material gratuito sin valor comercial (Valor a precio estadístico)</b>", styleN))
    elementos.append(Spacer(1, 12))
    elementos.append(Paragraph("Servicio POSTVENTA<br/>C/TITAN 15<br/>28045 - MADRID (ESPAÑA) CIF A28078202", styleN))
    elementos.append(Spacer(1, 12))
@@ -39,10 +41,10 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
    if destino_row is not None:
        dest_text = f"""
 <b>DESTINATARIO:</b><br/>
-       {destino_row['Nombre']}<br/>
-       {destino_row['Direccion']}<br/>
-       {destino_row['CP']} {destino_row['Ciudad']} ({destino_row['Pais']})<br/>
-       CIF: {destino_row['CIF']}
+       {destino_row.get('Nombre','')}<br/>
+       {destino_row.get('Direccion','')}<br/>
+       {destino_row.get('CP','')} {destino_row.get('Ciudad','')} ({destino_row.get('Pais','')})<br/>
+       CIF: {destino_row.get('CIF','')}
        """
    else:
        dest_text = "<b>DESTINATARIO:</b> No encontrado"
@@ -50,9 +52,9 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
    elementos.append(Spacer(1, 12))
    elementos.append(Paragraph(f"<b>NÚMERO DE FACTURA PROFORMA:</b> {oa_sgr}", styleN))
    elementos.append(Spacer(1, 12))
-   # Tabla referencias
+   # Tabla de referencias
    if referencias:
-       data = [["Referencia","Cantidad","Descripción","Precio/UD","Importe"]]
+       data = [["Referencia", "Cantidad", "Descripción", "Precio/UD", "Importe"]]
        for ref in referencias:
            data.append([
                ref["Referencia"],
@@ -63,10 +65,10 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
            ])
        t = Table(data, repeatRows=1)
        t.setStyle(TableStyle([
-           ("BACKGROUND",(0,0),(-1,0),colors.grey),
-           ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke),
-           ("ALIGN",(0,0),(-1,-1),"CENTER"),
-           ("GRID",(0,0),(-1,-1),1,colors.black)
+           ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+           ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+           ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+           ("GRID", (0, 0), (-1, -1), 1, colors.black),
        ]))
        elementos.append(t)
    elementos.append(Spacer(1, 24))
@@ -76,6 +78,7 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
        elementos.append(pie)
    except:
        elementos.append(Paragraph("PIE NO DISPONIBLE", styleN))
+   # Construcción del PDF
    doc.build(elementos)
    pdf = buffer.getvalue()
    buffer.close()
@@ -86,97 +89,88 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
 catalogo = load_excel("data/catalogo.xlsx")
 destinos = load_excel("data/destinos.xlsx")
 almacenes = load_excel("data/almacenes.xlsx")
+# Debug opcional para comprobar columnas cargadas
+# st.write("Columnas catálogo:", catalogo.columns.tolist())
+# st.write("Columnas destinos:", destinos.columns.tolist())
+# st.write("Columnas almacenes:", almacenes.columns.tolist())
 # ==========================
-# INICIALIZACIÓN DE STREAMLIT
+# INTERFAZ STREAMLIT
 # ==========================
 st.title("📄 Generador de Factura Proforma")
-if "referencias" not in st.session_state:
-   st.session_state["referencias"] = []
-# ==========================
-# FORMULARIO PRINCIPAL
-# ==========================
-with st.form("form_factura", clear_on_submit=False):
+with st.form("form_factura"):
    st.subheader("1) Solicitante")
    solicitante = st.selectbox("Seleccione el solicitante", ["BO/Taller", "Almacén Central", "Proveedor"])
    almacen_desc = ""
    proveedor = ""
    if solicitante == "BO/Taller":
-       cod_alm = st.text_input("Código de Almacén Solicitante")
+       cod_alm = st.text_input("Código de Almacén Solicitante").strip()
        if cod_alm:
-           if "Codigo" not in almacenes.columns:
-               st.error("La columna 'Codigo' no existe en almacenes.xlsx")
-           else:
-               fila_alm = almacenes[almacenes["Codigo"] == cod_alm]
-               if not fila_alm.empty:
-                   almacen_desc = fila_alm.iloc[0]["Descripcion"]
+           if "Codigo" in almacenes.columns:
+               fila = almacenes[almacenes["Codigo"].str.upper() == cod_alm.upper()]
+               if not fila.empty:
+                   almacen_desc = fila.iloc[0]["Descripcion"]
                    st.success(f"Descripción: {almacen_desc}")
                else:
-                   st.error("Código de almacén no encontrado")
+                   st.error(f"Código de almacén '{cod_alm}' no encontrado en el fichero")
+           else:
+               st.error("El archivo de almacenes no contiene la columna 'Codigo'")
    elif solicitante == "Proveedor":
        proveedor = st.text_input("Nombre del proveedor")
    st.subheader("2) OA / Traspaso SGR")
-   oa_sgr = st.text_input("Número OA/SGR (obligatorio)")
+   oa_sgr = st.text_input("Número OA/SGR (obligatorio)").strip()
    if oa_sgr and not (oa_sgr.startswith("OA") or oa_sgr.startswith("SGR")):
        st.error("El número debe comenzar por 'OA' o 'SGR'")
-   st.subheader("3) Destino")
-   destino = st.selectbox("Seleccione destino", destinos["Nombre"].tolist())
+   st.subheader("3) Destino de la mercancía")
+   destino = st.selectbox("Seleccione destino", destinos["Nombre"].tolist() if "Nombre" in destinos.columns else [])
    destino_row = destinos[destinos["Nombre"] == destino].iloc[0] if destino else None
    st.subheader("4) Referencias")
-   col1, col2 = st.columns([2,1])
+   if "referencias" not in st.session_state:
+       st.session_state["referencias"] = []
+   col1, col2 = st.columns([2, 1])
    with col1:
-       nueva_ref = st.text_input("Referencia", key="ref_input")
+       nueva_ref = st.text_input("Referencia", key="nueva_ref").strip()
    with col2:
-       nueva_cant = st.number_input("Cantidad", min_value=1, value=1, key="cant_input")
-   # Botones del formulario
+       nueva_cant = st.number_input("Cantidad", min_value=1, value=1, key="nueva_cant")
+   # Botón para añadir referencias
    add_ref = st.form_submit_button("➕ Añadir referencia")
-   generar_pdf_btn = st.form_submit_button("📄 Generar Factura Proforma")
-# ==========================
-# GESTIÓN DE REFERENCIAS
-# ==========================
-if add_ref:
-   if not nueva_ref:
-       st.error("Debes introducir una referencia")
-   else:
-       fila_ref = catalogo[catalogo["Referencia"] == nueva_ref]
-       if not fila_ref.empty:
-           descripcion = fila_ref.iloc[0]["Descripcion"]
-           precio = fila_ref.iloc[0]["PrecioUD"]
-           importe = precio * nueva_cant
-           # Evitar duplicados
-           st.session_state["referencias"].append({
-               "Referencia": nueva_ref,
-               "Cantidad": nueva_cant,
-               "Descripcion": descripcion,
-               "PrecioUD": precio,
-               "Importe": importe
-           })
+   if add_ref and nueva_ref:
+       if "Referencia" in catalogo.columns:
+           fila = catalogo[catalogo["Referencia"].str.upper() == nueva_ref.upper()]
+           if not fila.empty:
+               descripcion = fila.iloc[0]["Descripcion"]
+               precio = float(fila.iloc[0]["PrecioUD"])
+               importe = precio * nueva_cant
+               st.session_state["referencias"].append({
+                   "Referencia": nueva_ref,
+                   "Cantidad": nueva_cant,
+                   "Descripcion": descripcion,
+                   "PrecioUD": precio,
+                   "Importe": importe
+               })
+               st.success(f"Referencia {nueva_ref} añadida correctamente")
+           else:
+               st.error(f"Referencia '{nueva_ref}' no encontrada en el catálogo")
        else:
-           st.error("Referencia no encontrada en el catálogo")
-# Mostrar referencias añadidas
-if st.session_state["referencias"]:
-   st.write("### Referencias añadidas")
-   df_refs = pd.DataFrame(st.session_state["referencias"])
-   st.table(df_refs)
-   # Permitir eliminar referencias
-   eliminar_idx = st.multiselect("Selecciona referencias para eliminar (opcional)", df_refs.index.tolist())
-   if eliminar_idx:
-       st.session_state["referencias"] = [r for i,r in enumerate(st.session_state["referencias"]) if i not in eliminar_idx]
-       st.experimental_rerun()
+           st.error("El archivo de catálogo no contiene la columna 'Referencia'")
+   if st.session_state["referencias"]:
+       st.write("### Referencias añadidas")
+       df_refs = pd.DataFrame(st.session_state["referencias"])
+       st.table(df_refs)
+   # Botón final de generación
+   generar = st.form_submit_button("📄 Generar Factura Proforma")
 # ==========================
 # GENERAR PDF
 # ==========================
-if generar_pdf_btn:
+if generar:
    if not oa_sgr:
        st.error("Debes introducir un número OA/SGR válido")
-   elif destino_row is None:
-       st.error("Debes seleccionar un destino")
-   elif not st.session_state["referencias"]:
-       st.error("Debes añadir al menos una referencia")
-   else:
-       pdf_bytes = generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, st.session_state["referencias"])
+   elif destino_row is not None and st.session_state["referencias"]:
+       pdf = generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, st.session_state["referencias"])
        st.download_button(
            "⬇️ Descargar PDF",
-           data=pdf_bytes,
+           data=pdf,
            file_name=f"FacturaProforma_{oa_sgr}.pdf",
            mime="application/pdf"
        )
+   else:
+       st.error("Faltan datos para generar la factura")
