@@ -6,6 +6,7 @@ from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from io import BytesIO
 import os
+from datetime import datetime
 # ==========================
 # FUNCIONES DE APOYO
 # ==========================
@@ -19,7 +20,7 @@ def ruta_imagen(nombre_archivo):
    """Devuelve la ruta absoluta a la carpeta images/"""
    base_path = os.path.dirname(os.path.abspath(__file__))
    return os.path.join(base_path, "images", nombre_archivo)
-def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, referencias):
+def generar_pdf(oa_sgr, destino_row, referencias):
    """Genera el PDF de la factura proforma."""
    buffer = BytesIO()
    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4))
@@ -33,37 +34,39 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
        logo.hAlign = "CENTER"
        elementos.append(logo)
        elementos.append(Spacer(1, 20))
-   else:
-       elementos.append(Paragraph("⚠️ LOGO NO DISPONIBLE", styleN))
-       elementos.append(Spacer(1, 20))
-   # Título
-   elementos.append(Paragraph("<b>FACTURA PROFORMA</b>", styleN))
-   elementos.append(Spacer(1, 12))
-   # Datos solicitante
-   texto_solicitante = f"Solicitante: {solicitante}"
-   if almacen_desc:
-       texto_solicitante += f"<br/>Almacén: {almacen_desc}"
-   if proveedor:
-       texto_solicitante += f"<br/>Proveedor: {proveedor}"
-   texto_solicitante += f"<br/>Número OA/SGR: {oa_sgr}"
-   elementos.append(Paragraph(texto_solicitante, styleN))
-   elementos.append(Spacer(1, 12))
-   # Destino
+   # === CABECERA (2 COLUMNAS) ===
+   fecha_hoy = datetime.today().strftime("%d/%m/%Y")
+   datos_izq = """<b>SERVICIO POSTVENTA</b><br/>
+   C/TITAN 15<br/>
+   28045 - MADRID (ESPAÑA)<br/>
+   C.I.F. A-28.078.202"""
    if destino_row is not None:
-       dest_text = f"""
-<b>DESTINO:</b><br/>
+       datos_der = f"""
+<b>DESTINO</b><br/>
        {destino_row.get('Nombre','')}<br/>
        {destino_row.get('Direccion','')}<br/>
        {destino_row.get('CP','')} {destino_row.get('Ciudad','')} ({destino_row.get('Pais','')})<br/>
-       CIF: {destino_row.get('CIF','')}
+       CIF: {destino_row.get('CIF','')}<br/>
+<b>FECHA:</b> {fecha_hoy}
        """
    else:
-       dest_text = "<b>DESTINO:</b> No encontrado"
-   elementos.append(Paragraph(dest_text, styleN))
-   elementos.append(Spacer(1, 12))
-   # Tabla de referencias
+       datos_der = f"<b>DESTINO:</b> No encontrado<br/><b>FECHA:</b> {fecha_hoy}"
+   tabla_cabecera = Table([
+       [Paragraph(datos_izq, styleN), Paragraph(datos_der, styleN)]
+   ], colWidths=[400, 400])
+   tabla_cabecera.setStyle(TableStyle([
+       ("VALIGN", (0, 0), (-1, -1), "TOP"),
+   ]))
+   elementos.append(tabla_cabecera)
+   elementos.append(Spacer(1, 20))
+   # === TÍTULO FACTURA ===
+   elementos.append(Paragraph("<b>FACTURA PROFORMA</b>", styleN))
+   elementos.append(Paragraph(f"<b>{oa_sgr}</b>", styleN))
+   elementos.append(Spacer(1, 20))
+   # === TABLA REFERENCIAS ===
    if referencias:
        data = [["Referencia", "Cantidad", "Descripción", "Precio/UD", "Importe"]]
+       total = 0
        for ref in referencias:
            data.append([
                ref["Referencia"],
@@ -72,6 +75,9 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
                f"{ref['PrecioUD']:.2f}",
                f"{ref['Importe']:.2f}"
            ])
+           total += ref["Importe"]
+       # fila de TOTAL
+       data.append(["", "", "", "TOTAL", f"{total:.2f}"])
        t = Table(data, repeatRows=1)
        t.setStyle(TableStyle([
            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
@@ -87,8 +93,6 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
        footer = Image(footer_path, width=200, height=70)
        footer.hAlign = "CENTER"
        elementos.append(footer)
-   else:
-       elementos.append(Paragraph("⚠️ FOOTER NO DISPONIBLE", styleN))
    # Construcción del PDF
    doc.build(elementos)
    pdf = buffer.getvalue()
@@ -99,32 +103,16 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
 # ==========================
 catalogo = load_excel("data/catalogo.xlsx")
 destinos = load_excel("data/destinos.xlsx")
-almacenes = load_excel("data/almacenes.xlsx")
 # ==========================
 # INTERFAZ STREAMLIT
 # ==========================
 st.title("📄 Generador de Factura Proforma")
 with st.form("form_factura"):
-   st.subheader("1) Solicitante")
-   solicitante = st.selectbox("Seleccione el solicitante", ["BO/Taller", "Almacén Central", "Proveedor"])
-   almacen_desc = ""
-   proveedor = ""
-   if solicitante == "BO/Taller":
-       cod_alm = st.text_input("Código de Almacén Solicitante")
-       if cod_alm and "Codigo" in almacenes.columns:
-           fila = almacenes[almacenes["Codigo"].astype(str).str.upper() == cod_alm.upper()]
-           if not fila.empty:
-               almacen_desc = str(fila.iloc[0]["Descripcion"])
-               st.success(f"Descripción: {almacen_desc}")
-           else:
-               st.error("Código de almacén no encontrado")
-   elif solicitante == "Proveedor":
-       proveedor = st.text_input("Nombre del proveedor")
-   st.subheader("2) OA / Traspaso SGR")
+   st.subheader("1) OA / Traspaso SGR")
    oa_sgr = st.text_input("Número OA/SGR (obligatorio)")
    if oa_sgr and not (oa_sgr.startswith("OA") or oa_sgr.startswith("SGR")):
        st.error("El número debe comenzar por 'OA' o 'SGR'")
-   st.subheader("3) Destino de la mercancía")
+   st.subheader("2) Destino de la mercancía")
    if not destinos.empty and "Nombre" in destinos.columns:
        destino = st.selectbox("Seleccione destino", destinos["Nombre"].dropna().astype(str).tolist())
        destino_row = destinos[destinos["Nombre"] == destino].iloc[0] if destino else None
@@ -132,7 +120,7 @@ with st.form("form_factura"):
        destino = None
        destino_row = None
        st.error("No hay destinos disponibles en el archivo")
-   st.subheader("4) Referencias")
+   st.subheader("3) Referencias")
    if "referencias" not in st.session_state:
        st.session_state["referencias"] = []
    col1, col2 = st.columns([2, 1])
@@ -158,11 +146,10 @@ with st.form("form_factura"):
                })
            else:
                st.error("Referencia no encontrada en el catálogo")
-       else:
-           st.error("El catálogo no está disponible o no tiene columna 'Referencia'")
+   # Mostrar tabla en app (sin precios)
    if st.session_state["referencias"]:
        st.write("### Referencias añadidas")
-       df_refs = pd.DataFrame(st.session_state["referencias"])
+       df_refs = pd.DataFrame(st.session_state["referencias"])[["Referencia", "Cantidad", "Descripcion"]]
        st.table(df_refs)
    generar = st.form_submit_button("📄 Generar Factura Proforma")
 # ==========================
@@ -172,7 +159,7 @@ if generar:
    if not oa_sgr:
        st.error("Debes introducir un número OA/SGR válido")
    elif destino_row is not None and st.session_state["referencias"]:
-       pdf = generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, st.session_state["referencias"])
+       pdf = generar_pdf(oa_sgr, destino_row, st.session_state["referencias"])
        st.download_button(
            "⬇️ Descargar PDF",
            data=pdf,
