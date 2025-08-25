@@ -23,7 +23,15 @@ def ruta_imagen(nombre_archivo):
 def generar_pdf(oa_sgr, destino_row, referencias):
    """Genera el PDF de la factura proforma."""
    buffer = BytesIO()
-   doc = SimpleDocTemplate(buffer, pagesize=landscape(A4))
+   # Márgenes ajustados
+   doc = SimpleDocTemplate(
+       buffer,
+       pagesize=landscape(A4),
+       leftMargin=40,
+       rightMargin=40,
+       topMargin=40,
+       bottomMargin=40
+   )
    elementos = []
    styles = getSampleStyleSheet()
    styleN = styles["Normal"]
@@ -53,7 +61,7 @@ def generar_pdf(oa_sgr, destino_row, referencias):
        datos_der = f"<b>DESTINO:</b> No encontrado<br/><b>FECHA:</b> {fecha_hoy}"
    tabla_cabecera = Table([
        [Paragraph(datos_izq, styleN), Paragraph(datos_der, styleN)]
-   ], colWidths=[400, 400])
+   ], colWidths=[380, 380])
    tabla_cabecera.setStyle(TableStyle([
        ("VALIGN", (0, 0), (-1, -1), "TOP"),
    ]))
@@ -65,7 +73,7 @@ def generar_pdf(oa_sgr, destino_row, referencias):
    elementos.append(Spacer(1, 20))
    # === TABLA REFERENCIAS ===
    if referencias:
-       data = [["Referencia", "Cantidad", "Descripción", "Precio/UD", "Importe"]]
+       data = [["Referencia", "Cantidad", "Descripción", "Precio/UD", "Importe/EUROS"]]
        total = 0
        for ref in referencias:
            data.append([
@@ -78,16 +86,26 @@ def generar_pdf(oa_sgr, destino_row, referencias):
            total += ref["Importe"]
        # fila de TOTAL
        data.append(["", "", "", "TOTAL", f"{total:.2f}"])
-       t = Table(data, repeatRows=1)
+       t = Table(data, repeatRows=1, colWidths=[100, 80, 400, 100, 120])
        t.setStyle(TableStyle([
            ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
            ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
            ("GRID", (0, 0), (-1, -1), 1, colors.black),
+           ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+           ("FONTNAME", (-2, -1), (-1, -1), "Helvetica-Bold"),
        ]))
        elementos.append(t)
-   elementos.append(Spacer(1, 30))
-   # === FOOTER CENTRADO ABAJO ===
+       elementos.append(Spacer(1, 20))
+   # === TEXTO FIJO BAJO TABLA ===
+   texto_fijo = Paragraph(
+       "<b>Material gratuito SIN valor comercial (Valor a precio estadístico)</b>",
+       styles["Title"]
+   )
+   texto_fijo.style.alignment = 1  # centrado
+   elementos.append(texto_fijo)
+   elementos.append(Spacer(1, 20))
+   # === FOOTER ABAJO ===
    footer_path = ruta_imagen("footer.png")
    if os.path.exists(footer_path):
        footer = Image(footer_path, width=200, height=70)
