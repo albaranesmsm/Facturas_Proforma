@@ -10,56 +10,58 @@ import os
 # FUNCIONES DE APOYO
 # ==========================
 def load_excel(path):
-   """Carga un Excel si existe, si no devuelve DataFrame vacío."""
+   """Carga un Excel si existe."""
    if not os.path.exists(path):
        st.error(f"No se encuentra el archivo requerido: {path}")
        return pd.DataFrame()
-   try:
-       df = pd.read_excel(path)
-       # Normalizar nombres de columnas
-       df.columns = df.columns.str.strip().str.title()
-       return df
-   except Exception as e:
-       st.error(f"Error al leer {path}: {e}")
-       return pd.DataFrame()
-
+   return pd.read_excel(path)
+def ruta_imagen(nombre_archivo):
+   """Devuelve la ruta absoluta a la carpeta images/"""
+   base_path = os.path.dirname(os.path.abspath(__file__))
+   return os.path.join(base_path, "images", nombre_archivo)
 def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, referencias):
-   """Genera el PDF de la factura proforma con logo y footer."""
+   """Genera el PDF de la factura proforma."""
    buffer = BytesIO()
    doc = SimpleDocTemplate(buffer, pagesize=landscape(A4))
    elementos = []
    styles = getSampleStyleSheet()
    styleN = styles["Normal"]
-   # === LOGO ARRIBA ===
-   logo_path = "image/logo.png"
+   # === LOGO CENTRADO ARRIBA ===
+   logo_path = ruta_imagen("logo.png")
    if os.path.exists(logo_path):
-       elementos.append(Image(logo_path, width=120, height=60))
+       logo = Image(logo_path, width=150, height=80)
+       logo.hAlign = "CENTER"
+       elementos.append(logo)
        elementos.append(Spacer(1, 20))
    else:
        elementos.append(Paragraph("⚠️ LOGO NO DISPONIBLE", styleN))
        elementos.append(Spacer(1, 20))
-   # === CABECERA ===
+   # Título
    elementos.append(Paragraph("<b>FACTURA PROFORMA</b>", styleN))
    elementos.append(Spacer(1, 12))
-   elementos.append(Paragraph(f"Solicitante: {solicitante}", styleN))
+   # Datos solicitante
+   texto_solicitante = f"Solicitante: {solicitante}"
    if almacen_desc:
-       elementos.append(Paragraph(f"Almacén: {almacen_desc}", styleN))
+       texto_solicitante += f"<br/>Almacén: {almacen_desc}"
    if proveedor:
-       elementos.append(Paragraph(f"Proveedor: {proveedor}", styleN))
-   elementos.append(Paragraph(f"Número OA/SGR: {oa_sgr}", styleN))
+       texto_solicitante += f"<br/>Proveedor: {proveedor}"
+   texto_solicitante += f"<br/>Número OA/SGR: {oa_sgr}"
+   elementos.append(Paragraph(texto_solicitante, styleN))
    elementos.append(Spacer(1, 12))
-   # === DESTINO ===
+   # Destino
    if destino_row is not None:
-       dest = (
-           f"<b>DESTINO:</b><br/>"
-           f"{destino_row.get('Nombre', '')}<br/>"
-           f"{destino_row.get('Direccion', '')}<br/>"
-           f"{destino_row.get('Cp', '')} {destino_row.get('Ciudad', '')} ({destino_row.get('Pais', '')})<br/>"
-           f"CIF: {destino_row.get('Cif', '')}"
-       )
-       elementos.append(Paragraph(dest, styleN))
-       elementos.append(Spacer(1, 12))
-   # === TABLA DE REFERENCIAS ===
+       dest_text = f"""
+<b>DESTINO:</b><br/>
+       {destino_row.get('Nombre','')}<br/>
+       {destino_row.get('Direccion','')}<br/>
+       {destino_row.get('CP','')} {destino_row.get('Ciudad','')} ({destino_row.get('Pais','')})<br/>
+       CIF: {destino_row.get('CIF','')}
+       """
+   else:
+       dest_text = "<b>DESTINO:</b> No encontrado"
+   elementos.append(Paragraph(dest_text, styleN))
+   elementos.append(Spacer(1, 12))
+   # Tabla de referencias
    if referencias:
        data = [["Referencia", "Cantidad", "Descripción", "Precio/UD", "Importe"]]
        for ref in referencias:
@@ -68,30 +70,30 @@ def generar_pdf(solicitante, almacen_desc, proveedor, oa_sgr, destino_row, refer
                ref["Cantidad"],
                ref["Descripcion"],
                f"{ref['PrecioUD']:.2f}",
-               f"{ref['Importe']:.2f}",
+               f"{ref['Importe']:.2f}"
            ])
-       tabla = Table(data, repeatRows=1)
-       tabla.setStyle(TableStyle([
-           ("BACKGROUND", (0,0), (-1,0), colors.grey),
-           ("TEXTCOLOR", (0,0), (-1,0), colors.whitesmoke),
-           ("GRID", (0,0), (-1,-1), 1, colors.black),
-           ("ALIGN", (1,1), (-1,-1), "CENTER"),
+       t = Table(data, repeatRows=1)
+       t.setStyle(TableStyle([
+           ("BACKGROUND", (0, 0), (-1, 0), colors.grey),
+           ("TEXTCOLOR", (0, 0), (-1, 0), colors.whitesmoke),
+           ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+           ("GRID", (0, 0), (-1, -1), 1, colors.black),
        ]))
-       elementos.append(tabla)
-       elementos.append(Spacer(1, 24))
-   # === FOOTER DEBAJO DE LA TABLA ===
-   footer_path = "image/footer.png"
+       elementos.append(t)
+   elementos.append(Spacer(1, 30))
+   # === FOOTER CENTRADO ABAJO ===
+   footer_path = ruta_imagen("footer.png")
    if os.path.exists(footer_path):
-       elementos.append(Spacer(1, 30))
-       elementos.append(Image(footer_path, width=180, height=60))
+       footer = Image(footer_path, width=200, height=70)
+       footer.hAlign = "CENTER"
+       elementos.append(footer)
    else:
        elementos.append(Paragraph("⚠️ FOOTER NO DISPONIBLE", styleN))
-   # === GENERAR PDF ===
+   # Construcción del PDF
    doc.build(elementos)
    pdf = buffer.getvalue()
    buffer.close()
    return pdf
-
 # ==========================
 # CARGA DE DATOS
 # ==========================
@@ -109,16 +111,13 @@ with st.form("form_factura"):
    proveedor = ""
    if solicitante == "BO/Taller":
        cod_alm = st.text_input("Código de Almacén Solicitante")
-       if cod_alm and not almacenes.empty:
-           if "Codigo" in almacenes.columns:
-               fila = almacenes[almacenes["Codigo"].astype(str).str.upper() == cod_alm.upper()]
-               if not fila.empty:
-                   almacen_desc = fila.iloc[0]["Descripcion"]
-                   st.success(f"Descripción: {almacen_desc}")
-               else:
-                   st.error("Código de almacén no encontrado")
+       if cod_alm and "Codigo" in almacenes.columns:
+           fila = almacenes[almacenes["Codigo"].astype(str).str.upper() == cod_alm.upper()]
+           if not fila.empty:
+               almacen_desc = str(fila.iloc[0]["Descripcion"])
+               st.success(f"Descripción: {almacen_desc}")
            else:
-               st.error("El archivo de almacenes no tiene columna 'Codigo'")
+               st.error("Código de almacén no encontrado")
    elif solicitante == "Proveedor":
        proveedor = st.text_input("Nombre del proveedor")
    st.subheader("2) OA / Traspaso SGR")
@@ -126,13 +125,13 @@ with st.form("form_factura"):
    if oa_sgr and not (oa_sgr.startswith("OA") or oa_sgr.startswith("SGR")):
        st.error("El número debe comenzar por 'OA' o 'SGR'")
    st.subheader("3) Destino de la mercancía")
-   destino = None
-   destino_row = None
    if not destinos.empty and "Nombre" in destinos.columns:
-       destino = st.selectbox("Seleccione destino", destinos["Nombre"].dropna().tolist())
-       destino_row = destinos[destinos["Nombre"] == destino].iloc[0].to_dict() if destino else None
+       destino = st.selectbox("Seleccione destino", destinos["Nombre"].dropna().astype(str).tolist())
+       destino_row = destinos[destinos["Nombre"] == destino].iloc[0] if destino else None
    else:
-       st.error("No se pudo cargar el listado de destinos")
+       destino = None
+       destino_row = None
+       st.error("No hay destinos disponibles en el archivo")
    st.subheader("4) Referencias")
    if "referencias" not in st.session_state:
        st.session_state["referencias"] = []
@@ -141,13 +140,14 @@ with st.form("form_factura"):
        nueva_ref = st.text_input("Referencia", key="nueva_ref")
    with col2:
        nueva_cant = st.number_input("Cantidad", min_value=1, value=1, key="nueva_cant")
+   # Botón para añadir referencias
    add_ref = st.form_submit_button("➕ Añadir referencia")
    if add_ref and nueva_ref:
        if not catalogo.empty and "Referencia" in catalogo.columns:
            fila = catalogo[catalogo["Referencia"].astype(str) == str(nueva_ref)]
            if not fila.empty:
-               descripcion = fila.iloc[0].get("Descripcion", "SIN DESCRIPCIÓN")
-               precio = float(fila.iloc[0].get("PrecioUd", 0))
+               descripcion = str(fila.iloc[0]["Descripcion"])
+               precio = float(fila.iloc[0]["PrecioUD"])
                importe = precio * nueva_cant
                st.session_state["referencias"].append({
                    "Referencia": nueva_ref,
@@ -159,7 +159,7 @@ with st.form("form_factura"):
            else:
                st.error("Referencia no encontrada en el catálogo")
        else:
-           st.error("No se pudo cargar el catálogo correctamente")
+           st.error("El catálogo no está disponible o no tiene columna 'Referencia'")
    if st.session_state["referencias"]:
        st.write("### Referencias añadidas")
        df_refs = pd.DataFrame(st.session_state["referencias"])
